@@ -23,6 +23,8 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Resources;
+import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Binder;
 import android.os.Build;
@@ -30,6 +32,7 @@ import android.os.IBinder;
 import android.os.SystemClock;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
+import android.support.v4.content.res.ResourcesCompat;
 import android.util.Log;
 import android.widget.RemoteViews;
 
@@ -265,14 +268,13 @@ public class KeyCachingService extends Service {
   }
 
   private void foregroundServiceLegacy() {
-    Notification notification  = new Notification(R.drawable.icon_cached,
-                                                  getString(R.string.KeyCachingService_signal_passphrase_cached),
-                                                  System.currentTimeMillis());
-    notification.setLatestEventInfo(getApplicationContext(),
-                                    getString(R.string.KeyCachingService_passphrase_cached),
-                                    getString(R.string.KeyCachingService_signal_passphrase_cached),
-                                    buildLaunchIntent());
-    notification.tickerText = null;
+    final Notification notification = new NotificationCompat.Builder(this)
+            .setSmallIcon(R.drawable.icon_cached) // TODO: do we need a large icon?
+            .setWhen(System.currentTimeMillis()) // todo: on N+, need setShowWhen(true)
+            .setContentTitle(getString(R.string.KeyCachingService_passphrase_cached))
+            .setContentText(getString(R.string.KeyCachingService_signal_passphrase_cached))
+            .setContentIntent(buildLaunchIntent())
+            .build();
 
     stopForeground(true);
     startForeground(SERVICE_RUNNING_ID, notification);
