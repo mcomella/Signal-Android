@@ -8,6 +8,11 @@ import android.os.AsyncTask;
 import android.provider.ContactsContract;
 import android.support.v7.app.AlertDialog;
 import android.util.Log;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.ImageView;
+import android.widget.TextView;
 
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.recipients.Recipient;
@@ -16,6 +21,7 @@ import org.thoughtcrime.securesms.recipients.Recipients;
 import org.thoughtcrime.securesms.util.GroupUtil;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.thoughtcrime.securesms.util.Util;
+import org.thoughtcrime.securesms.util.ViewUtil;
 import org.whispersystems.signalservice.api.util.InvalidNumberException;
 
 import java.io.IOException;
@@ -51,12 +57,15 @@ public class GroupMembersDialog extends AsyncTask<Void, Void, Recipients> {
 
   @Override
   public void onPostExecute(Recipients members) {
-    GroupMembers groupMembers = new GroupMembers(members);
+    final GroupMembersAdapter adapter = new GroupMembersAdapter(context, R.layout.group_members_dialog_item,
+            R.id.member_name, members.getRecipientsList());
+    final GroupMembersOnClickListener onClickListener = new GroupMembersOnClickListener(adapter);
+
     AlertDialog.Builder builder = new AlertDialog.Builder(context);
     builder.setTitle(R.string.ConversationActivity_group_members);
     builder.setIconAttribute(R.attr.group_members_dialog_icon);
     builder.setCancelable(true);
-    builder.setItems(groupMembers.getRecipientStrings(), new GroupMembersOnClickListener(context, groupMembers));
+    builder.setAdapter(adapter, onClickListener);
     builder.setPositiveButton(android.R.string.ok, null);
     builder.show();
   }
@@ -67,17 +76,16 @@ public class GroupMembersDialog extends AsyncTask<Void, Void, Recipients> {
   }
 
   private static class GroupMembersOnClickListener implements DialogInterface.OnClickListener {
-    private final GroupMembers groupMembers;
-    private final Context      context;
+    private final GroupMembersAdapter adapter;
 
-    public GroupMembersOnClickListener(Context context, GroupMembers members) {
-      this.context      = context;
-      this.groupMembers = members;
+    public GroupMembersOnClickListener(final GroupMembersAdapter adapter) {
+      this.adapter = adapter;
     }
 
     @Override
     public void onClick(DialogInterface dialogInterface, int item) {
-      Recipient recipient = groupMembers.get(item);
+      final Context context = adapter.getContext(); // TODO: adapter context okay?
+      final Recipient recipient = adapter.getItem(item);
 
       if (recipient.getContactUri() != null) {
         ContactsContract.QuickContact.showQuickContact(context, new Rect(0,0,0,0),
@@ -92,48 +100,52 @@ public class GroupMembersDialog extends AsyncTask<Void, Void, Recipients> {
     }
   }
 
-  /**
-   * Wraps a List of Recipient (just like @class Recipients),
-   * but with focus on the order of the Recipients.
-   * So that the order of the RecipientStrings[] matches
-   * the internal order.
-   *
-   * @author Christoph Haefner
-   */
-  private class GroupMembers {
-    private final String TAG = GroupMembers.class.getSimpleName();
+  private static class GroupMembersAdapter extends ArrayAdapter<Recipient> {
+    private final String TAG = GroupMembersAdapter.class.getSimpleName();
 
-    private final LinkedList<Recipient> members = new LinkedList<>();
+    private final LinkedList<Recipient> members;
 
-    public GroupMembers(Recipients recipients) {
-      for (Recipient recipient : recipients.getRecipientsList()) {
+    public GroupMembersAdapter(Context context, int layoutRes, int textViewResId, List<Recipient> recipients) {
+      super(context, layoutRes, textViewResId, recipients);
+      members = sortGroupMembers(recipients);
+    }
+
+    private LinkedList<Recipient> sortGroupMembers(final List<Recipient> recipients) {
+      final LinkedList<Recipient> members = new LinkedList<>();
+      for (final Recipient recipient : recipients) {
         if (isLocalNumber(recipient)) {
           members.push(recipient);
         } else {
           members.add(recipient);
         }
       }
+      return members;
     }
 
-    public String[] getRecipientStrings() {
-      List<String> recipientStrings = new LinkedList<>();
+    @Override
+    public View getView(int position, View convertView, ViewGroup parent) {
+      // Recycles view & sets TextView to our item's getString (which we don't want).
+      final View view = super.getView(position, convertView, parent);
+      final TextView memberNameView = ViewUtil.findById(view, R.id.member_name);
+      final ImageView memberPhotoView = ViewUtil.findById(view, R.id.member_photo);
 
-      for (Recipient recipient : members) {
-        if (isLocalNumber(recipient)) {
-          recipientStrings.add(context.getString(R.string.GroupMembersDialog_me));
-        } else {
-          recipientStrings.add(recipient.toShortString());
-        }
+      final Recipient member = getItem(position);
+      memberNameView.setText(getMemberName(member));
+      memberPhotoView.setImageDrawable(member.getContactPhoto().asDrawable(getContext(), 0)); // tODO: null photo? no photo?
+
+      return view;
+    }
+
+    private String getMemberName(final Recipient member) {
+      if (isLocalNumber(member)) {
+        return getContext().getString(R.string.GroupMembersDialog_me);
+      } else {
+        return member.toShortString();
       }
-
-      return recipientStrings.toArray(new String[members.size()]);
-    }
-
-    public Recipient get(int index) {
-      return members.get(index);
     }
 
     private boolean isLocalNumber(Recipient recipient) {
+      final Context context = getContext();
       try {
         String localNumber = TextSecurePreferences.getLocalNumber(context);
         String e164Number  = Util.canonicalizeNumber(context, recipient.getNumber());
